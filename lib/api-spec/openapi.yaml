@@ -10,6 +10,18 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: HOD dashboard and planning summaries
+  - name: sessions
+    description: Academic session management
+  - name: courses
+    description: Course catalogue
+  - name: faculty
+    description: Faculty and workload
+  - name: allocations
+    description: Course allocation workspace
+  - name: activity
+    description: Audit activity
 paths:
   /healthz:
     get:
@@ -24,7 +36,213 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Get dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+  /sessions:
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      summary: List academic sessions
+      responses:
+        "200":
+          description: Academic sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AcademicSession"
+    post:
+      operationId: createSession
+      tags: [sessions]
+      summary: Create an academic session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionInput"
+      responses:
+        "201":
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcademicSession"
+  /courses:
+    get:
+      operationId: listCourses
+      tags: [courses]
+      summary: List courses
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Programme"
+      responses:
+        "200":
+          description: Courses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Course"
+    post:
+      operationId: createCourse
+      tags: [courses]
+      summary: Create a course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourseInput"
+      responses:
+        "201":
+          description: Created course
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Course"
+  /faculty:
+    get:
+      operationId: listFaculty
+      tags: [faculty]
+      summary: List faculty
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/FacultyType"
+      responses:
+        "200":
+          description: Faculty members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Faculty"
+  /offerings:
+    get:
+      operationId: listOfferings
+      tags: [allocations]
+      summary: List current course offerings
+      parameters:
+        - $ref: "#/components/parameters/Programme"
+        - $ref: "#/components/parameters/Status"
+      responses:
+        "200":
+          description: Course offerings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Offering"
+  /allocations/{id}:
+    patch:
+      operationId: updateAllocation
+      tags: [allocations]
+      summary: Assign or change faculty for an offering
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocationUpdate"
+      responses:
+        "200":
+          description: Updated allocation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Offering"
+  /workload:
+    get:
+      operationId: listWorkload
+      tags: [faculty]
+      summary: Get faculty workload matrix
+      responses:
+        "200":
+          description: Faculty workload
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workload"
+  /activity:
+    get:
+      operationId: listActivity
+      tags: [activity]
+      summary: List recent audit activity
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Activity"
+  /sessions/{id}/approve:
+    post:
+      operationId: approveSession
+      tags: [sessions]
+      summary: Approve the current allocation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Approved session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcademicSession"
 components:
+  parameters:
+    Search:
+      name: search
+      in: query
+      required: false
+      schema:
+        type: string
+    Programme:
+      name: programme
+      in: query
+      required: false
+      schema:
+        type: string
+    FacultyType:
+      name: type
+      in: query
+      required: false
+      schema:
+        type: string
+    Status:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +251,156 @@ components:
           type: string
       required:
         - status
+    Dashboard:
+      type: object
+      required: [session, totals, programmes, workload, conflicts, activity]
+      properties:
+        session:
+          $ref: "#/components/schemas/AcademicSession"
+        totals:
+          $ref: "#/components/schemas/DashboardTotals"
+        programmes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProgrammeProgress"
+        workload:
+          $ref: "#/components/schemas/WorkloadSummary"
+        conflicts:
+          type: number
+        activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/Activity"
+    DashboardTotals:
+      type: object
+      required: [faculty, permanentFaculty, visitingFaculty, courses, allocated, remaining, overloaded]
+      properties:
+        faculty: { type: number }
+        permanentFaculty: { type: number }
+        visitingFaculty: { type: number }
+        courses: { type: number }
+        allocated: { type: number }
+        remaining: { type: number }
+        overloaded: { type: number }
+    ProgrammeProgress:
+      type: object
+      required: [programme, allocated, total, workload]
+      properties:
+        programme: { type: string }
+        allocated: { type: number }
+        total: { type: number }
+        workload: { type: number }
+    WorkloadSummary:
+      type: object
+      required: [underloaded, balanced, nearMaximum, overloaded]
+      properties:
+        underloaded: { type: number }
+        balanced: { type: number }
+        nearMaximum: { type: number }
+        overloaded: { type: number }
+    AcademicSession:
+      type: object
+      required: [id, code, label, status, term, year]
+      properties:
+        id: { type: number }
+        code: { type: string }
+        label: { type: string }
+        term: { type: string }
+        year: { type: number }
+        status: { type: string }
+    SessionInput:
+      type: object
+      required: [code, label, term, year]
+      properties:
+        code: { type: string }
+        label: { type: string }
+        term: { type: string }
+        year: { type: number }
+    Course:
+      type: object
+      required: [id, code, title, programme, semester, credit, theory, lab, category, status]
+      properties:
+        id: { type: number }
+        code: { type: string }
+        title: { type: string }
+        programme: { type: string }
+        semester: { type: string }
+        credit: { type: string }
+        theory: { type: number }
+        lab: { type: number }
+        category: { type: string }
+        status: { type: string }
+    CourseInput:
+      type: object
+      required: [code, title, programme, semester, credit, theory, lab, category]
+      properties:
+        code: { type: string }
+        title: { type: string }
+        programme: { type: string }
+        semester: { type: string }
+        credit: { type: string }
+        theory: { type: number }
+        lab: { type: number }
+        category: { type: string }
+    Faculty:
+      type: object
+      required: [id, name, initials, designation, type, programme, expertise, currentLoad, maximumLoad, status]
+      properties:
+        id: { type: number }
+        name: { type: string }
+        initials: { type: string }
+        designation: { type: string }
+        type: { type: string }
+        programme: { type: string }
+        expertise: { type: string }
+        currentLoad: { type: number }
+        maximumLoad: { type: number }
+        status: { type: string }
+    Offering:
+      type: object
+      required: [id, courseCode, courseTitle, programme, semester, section, credit, theory, lab, faculty, previousFaculty, projectedWorkload, status]
+      properties:
+        id: { type: number }
+        courseCode: { type: string }
+        courseTitle: { type: string }
+        programme: { type: string }
+        semester: { type: string }
+        section: { type: string }
+        credit: { type: string }
+        theory: { type: number }
+        lab: { type: number }
+        faculty: { type: ["string", "null"] }
+        previousFaculty: { type: ["string", "null"] }
+        projectedWorkload: { type: number }
+        status: { type: string }
+    AllocationUpdate:
+      type: object
+      required: [faculty]
+      properties:
+        faculty: { type: string }
+    Workload:
+      type: object
+      required: [id, name, initials, designation, type, courses, sections, theory, lab, total, maximum, status]
+      properties:
+        id: { type: number }
+        name: { type: string }
+        initials: { type: string }
+        designation: { type: string }
+        type: { type: string }
+        courses: { type: number }
+        sections: { type: number }
+        theory: { type: number }
+        lab: { type: number }
+        total: { type: number }
+        maximum: { type: number }
+        status: { type: string }
+    Activity:
+      type: object
+      required: [id, user, action, detail, timestamp]
+      properties:
+        id: { type: number }
+        user: { type: string }
+        action: { type: string }
+        detail: { type: string }
+        timestamp: { type: string }
 

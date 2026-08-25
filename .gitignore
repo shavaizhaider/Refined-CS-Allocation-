@@ -47,3 +47,8 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+node_modules/  
+.local/  
+.agents/  
+.conversation/  
+dist/ 

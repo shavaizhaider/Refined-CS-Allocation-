@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "CS Course Allocation System"
+description = "A production-ready university operations app for HODs and authorised faculty teams to plan semesters, allocate courses, monitor workload, resolve conflicts, and approve final faculty assignments."
+version = "1.0.0"
+id = "artifacts/course-allocation"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18145
+
+[services.development]
+run = "pnpm --filter @workspace/course-allocation run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/course-allocation", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/course-allocation/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18145"
+BASE_PATH = "/"
