@@ -52,3 +52,4 @@ node_modules/
 .agents/  
 .conversation/  
 dist/ 
+artifacts/api-server/.env 
