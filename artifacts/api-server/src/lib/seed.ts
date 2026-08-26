@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import bcrypt from "bcryptjs";
+import { sql } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -11,9 +12,103 @@ import {
   activityTable,
 } from "@workspace/db";
 
+async function ensureSchema() {
+  const ddl = `
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'STUDENT',
+      student_id TEXT,
+      programme TEXT,
+      semester TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS academic_sessions (
+      id SERIAL PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      term TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Allocation in Progress',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS faculty (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      initials TEXT NOT NULL,
+      designation TEXT NOT NULL,
+      type TEXT NOT NULL,
+      programme TEXT NOT NULL DEFAULT 'BSCS',
+      department TEXT NOT NULL DEFAULT 'Computer Science',
+      expertise TEXT NOT NULL DEFAULT 'Computer Science',
+      current_load NUMERIC NOT NULL DEFAULT 0,
+      maximum_load NUMERIC NOT NULL DEFAULT 12,
+      status TEXT NOT NULL DEFAULT 'Balanced'
+    );
+
+    CREATE TABLE IF NOT EXISTS courses (
+      id SERIAL PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      programme TEXT NOT NULL,
+      semester TEXT NOT NULL,
+      credit TEXT NOT NULL,
+      theory NUMERIC NOT NULL DEFAULT 0,
+      lab NUMERIC NOT NULL DEFAULT 0,
+      category TEXT NOT NULL DEFAULT 'Core',
+      status TEXT NOT NULL DEFAULT 'Active'
+    );
+
+    CREATE TABLE IF NOT EXISTS course_offerings (
+      id SERIAL PRIMARY KEY,
+      course_id INTEGER,
+      course_code TEXT NOT NULL,
+      course_title TEXT NOT NULL,
+      programme TEXT NOT NULL,
+      semester TEXT NOT NULL,
+      section TEXT NOT NULL,
+      credit TEXT NOT NULL,
+      theory NUMERIC NOT NULL DEFAULT 0,
+      lab NUMERIC NOT NULL DEFAULT 0,
+      faculty_id INTEGER,
+      faculty TEXT,
+      lab_faculty_id INTEGER,
+      lab_faculty TEXT,
+      previous_faculty TEXT,
+      capacity INTEGER NOT NULL DEFAULT 40,
+      enrolled INTEGER NOT NULL DEFAULT 0,
+      projected_workload NUMERIC NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'Unallocated'
+    );
+
+    CREATE TABLE IF NOT EXISTS student_allocations (
+      id SERIAL PRIMARY KEY,
+      student_id INTEGER NOT NULL,
+      offering_id INTEGER NOT NULL,
+      allocated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT student_offering_idx UNIQUE (student_id, offering_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id SERIAL PRIMARY KEY,
+      "user" TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `;
+  await db.execute(sql.raw(ddl));
+}
+
 export async function seedDatabase() {
   try {
+    await ensureSchema();
     const existingUsers = await db.select().from(usersTable).limit(1);
+
     if (!existingUsers.length) {
       const hashedAdminPassword = await bcrypt.hash("admin123", 10);
       const hashedStudentPassword = await bcrypt.hash("student123", 10);

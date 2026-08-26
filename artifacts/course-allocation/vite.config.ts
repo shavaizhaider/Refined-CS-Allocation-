@@ -65,17 +65,24 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port,
-    strictPort: true,
-    host: '0.0.0.0',
-    allowedHosts: true,
-    fs: {
-      strict: true,
+  port,
+  strictPort: true,
+  host: '0.0.0.0',
+  allowedHosts: true,
+  fs: {
+    strict: true,
+  },
+  proxy: {
+    '/api': {
+      target: process.env.VITE_API_URL || 'http://localhost:5000',
+      changeOrigin: true,
     },
   },
+},
   preview: {
     port,
     host: '0.0.0.0',
     allowedHosts: true,
   },
 });
+
