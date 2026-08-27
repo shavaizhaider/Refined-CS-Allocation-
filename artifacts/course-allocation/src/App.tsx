@@ -3,39 +3,32 @@ import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/reac
 import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
 import LoginPage from '@/pages/login';
-import StudentAllocationPage from '@/pages/student-allocation';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import {
   Activity as ActivityIcon,
   AlertTriangle,
   ArrowRight,
-  ArrowRightLeft,
   BookOpen,
   Check,
   CheckCircle2,
   ChevronDown,
-  CircleHelp,
   ClipboardList,
   Copy,
   Download,
-  FileSpreadsheet,
   Filter,
   GraduationCap,
   Grid,
-  HelpCircle,
   Info,
   LayoutDashboard,
   Lock,
   LogOut,
   Menu,
-  MoreHorizontal,
   Network,
   Plus,
   RefreshCw,
   Search,
   ShieldAlert,
   SlidersHorizontal,
-  Sparkles,
   Table as TableIcon,
   Trash2,
   Unlock,
@@ -61,7 +54,6 @@ import {
   useListOfferings,
   useListSessions,
   useListWorkload,
-  useUpdateAllocation,
   type Activity as ActivityRecord,
   type Offering,
 } from '@workspace/api-client-react';
@@ -390,19 +382,11 @@ function Shell({ children }: { children: ReactNode }) {
     ]},
   ];
 
-  const studentNavGroups = [
-    { label: 'Student Portal', items: [
-      { href: '/student/allocation', label: 'Course Allocation', icon: BookOpen },
-    ]},
-  ];
-
-  const navGroups = user?.role === 'STUDENT' ? studentNavGroups : adminNavGroups;
-
   return (
     <div className="noise min-h-[100dvh] bg-[hsl(var(--background))]">
       <aside className={cn('fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar))] px-4 py-5 text-[hsl(var(--sidebar-foreground))] transition-transform duration-200 lg:translate-x-0', mobileOpen ? 'translate-x-0' : '-translate-x-full')}>
         <div className="flex items-center justify-between px-3 pb-8">
-          <Link href={user?.role === 'STUDENT' ? '/student/allocation' : '/dashboard'} className="flex items-center gap-3">
+          <Link href="/dashboard" className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(var(--sidebar-primary))] text-[hsl(var(--sidebar-primary-foreground))]">
               <GraduationCap size={21} />
             </span>
@@ -428,12 +412,12 @@ function Shell({ children }: { children: ReactNode }) {
               <p className="text-sm font-bold text-[#f5f1e9]">{activeCycleCode}</p>
               <p className="mt-0.5 text-[11px] text-[#aeb7bd]">{activeCycleLabel}</p>
             </div>
-            <span className="px-2 py-0.5 text-[9px] font-bold rounded bg-[#244c47] text-[#d8efe6] uppercase">{user?.role || 'GUEST'}</span>
+            <span className="px-2 py-0.5 text-[9px] font-bold rounded bg-[#244c47] text-[#d8efe6] uppercase">HOD ADMIN</span>
           </div>
         </div>
 
         <nav className="flex-1 space-y-7 overflow-y-auto" aria-label="Primary navigation">
-          {navGroups.map((group) => (
+          {adminNavGroups.map((group) => (
             <div key={group.label}>
               <p className="mb-2 px-3 font-mono text-[9px] font-medium uppercase tracking-[.2em] text-[#82909a]">{group.label}</p>
               <div className="space-y-0.5">
@@ -456,10 +440,10 @@ function Shell({ children }: { children: ReactNode }) {
 
         <div className="border-t border-[hsl(var(--sidebar-border))] pt-4">
           <div className="flex items-center gap-3 rounded-xl bg-[#172630] p-3 mb-2">
-            <Avatar name={user?.name || 'User'} tone={user?.role === 'ADMIN' ? 'amber' : 'teal'} />
+            <Avatar name={user?.name || 'Dr. M. Rehan Ashraf'} tone="amber" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-bold text-[#f5f1e9]">{user?.name || 'User'}</p>
-              <p className="truncate text-[10px] text-[#aeb7bd]">{user?.email || 'Logged in'}</p>
+              <p className="truncate text-xs font-bold text-[#f5f1e9]">{user?.name || 'Dr. M. Rehan Ashraf (HOD)'}</p>
+              <p className="truncate text-[10px] text-[#aeb7bd]">{user?.email || 'admin@cui.edu.pk'}</p>
             </div>
           </div>
           <button onClick={() => { logout(); setLocation('/login'); }}
@@ -521,14 +505,12 @@ function Shell({ children }: { children: ReactNode }) {
             <div className="hidden items-center gap-2 text-xs text-[hsl(var(--muted-foreground))] sm:flex">
               <span>Computer Science</span>
               <span className="text-[hsl(var(--border))]">/</span>
-              <span className="font-semibold text-[hsl(var(--foreground))]">
-                {user?.role === 'STUDENT' ? 'Student Allocation' : 'HOD Dashboard'}
-              </span>
+              <span className="font-semibold text-[hsl(var(--foreground))]">HOD Dashboard</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-[#eef6f2] text-[#28695e] border border-[#bcd8cb]">
-              {user?.name} ({user?.role})
+              Dr. M. Rehan Ashraf (HOD ADMIN)
             </span>
           </div>
         </header>
@@ -546,7 +528,7 @@ function ActivityPanel({ activities }: { activities: ActivityRecord[] }) {
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h2 className="text-base font-extrabold">Audit Trail & HOD Overrides Log</h2>
-          <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Complete log of faculty assignments, student allocations, and force-approvals.</p>
+          <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Complete log of faculty assignments and force-approvals.</p>
         </div>
         <Link href="/activity" className="text-xs font-extrabold text-[hsl(var(--primary))]">Full audit log <ArrowRight className="ml-1 inline" size={14} /></Link>
       </div>
@@ -1381,11 +1363,6 @@ function AllocationPage() {
     return matchSearch && matchProg && matchStatus;
   });
 
-  const toggleSelectAll = () => {
-    if (selectedIds.length === filtered.length) setSelectedIds([]);
-    else setSelectedIds(filtered.map((f) => f.id));
-  };
-
   return (
     <>
       <PageHeader
@@ -1669,10 +1646,9 @@ function ProtectedApp() {
   return (
     <Shell>
       <Switch>
-        <Route path="/" component={user?.role === 'STUDENT' ? StudentAllocationPage : Dashboard} />
+        <Route path="/" component={Dashboard} />
         <Route path="/login" component={LoginPage} />
         <Route path="/dashboard" component={Dashboard} />
-        <Route path="/student/allocation" component={StudentAllocationPage} />
         <Route path="/planning" component={PlanningPage} />
         <Route path="/allocation" component={AllocationPage} />
         <Route path="/conflicts" component={ConflictsPage} />

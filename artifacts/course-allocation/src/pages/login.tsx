@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { GraduationCap, Lock, Mail, User as UserIcon, Shield, ArrowRight, BookOpen } from "lucide-react";
+import { GraduationCap, Lock, Mail, User as UserIcon, Shield, ArrowRight } from "lucide-react";
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
@@ -14,10 +14,10 @@ export default function LoginPage() {
     email: "",
     password: "",
     name: "",
-    role: "STUDENT" as "STUDENT" | "ADMIN",
-    studentId: "FA25-BCS-010",
+    role: "ADMIN" as const,
+    studentId: null,
     programme: "BSCS",
-    semester: "1",
+    semester: null,
   });
 
   const handleQuickLogin = async (email: string, pass: string) => {
@@ -34,12 +34,8 @@ export default function LoginPage() {
         setError(data.error || "Login failed");
         return;
       }
-      login(data.token, data.user);
-      if (data.user.role === "STUDENT") {
-        setLocation("/student/allocation");
-      } else {
-        setLocation("/dashboard");
-      }
+      login(data.token, { ...data.user, role: "ADMIN" });
+      setLocation("/dashboard");
     } catch (err) {
       setError("Network error. Please try again.");
     } finally {
@@ -57,7 +53,7 @@ export default function LoginPage() {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, role: "ADMIN" }),
       });
 
       const data = await res.json();
@@ -67,12 +63,8 @@ export default function LoginPage() {
         return;
       }
 
-      login(data.token, data.user);
-      if (data.user.role === "STUDENT") {
-        setLocation("/student/allocation");
-      } else {
-        setLocation("/dashboard");
-      }
+      login(data.token, { ...data.user, role: "ADMIN" });
+      setLocation("/dashboard");
     } catch (err) {
       setError("Network error. Please try again.");
     } finally {
@@ -91,33 +83,23 @@ export default function LoginPage() {
             CS Course Allocation System
           </h1>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
-            COMSATS University Islamabad, Vehari Campus
+            COMSATS University Islamabad, Vehari Campus — HOD Portal
           </p>
         </div>
 
         {/* Quick Demo Credentials */}
         <div className="mb-6 p-3 bg-[#eef6f2] border border-[#bcd8cb] rounded-xl">
-          <p className="text-[11px] font-bold text-[#28695e] uppercase tracking-wider mb-2">
-            Quick Demo Accounts
+          <p className="text-[11px] font-bold text-[#28695e] uppercase tracking-wider mb-2 text-center">
+            Quick Admin Access
           </p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("student@cui.edu.pk", "student123")}
-              className="px-3 py-2 bg-white text-[11px] font-bold text-[#28695e] border border-[#bcd8cb] rounded-lg hover:bg-[#dcebe5] flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <BookOpen size={13} />
-              Student Portal
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("admin@cui.edu.pk", "admin123")}
-              className="px-3 py-2 bg-white text-[11px] font-bold text-[#28695e] border border-[#bcd8cb] rounded-lg hover:bg-[#dcebe5] flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Shield size={13} />
-              Admin Portal
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => handleQuickLogin("admin@cui.edu.pk", "admin123")}
+            className="w-full px-4 py-2.5 bg-white text-xs font-bold text-[#28695e] border border-[#bcd8cb] rounded-lg hover:bg-[#dcebe5] flex items-center justify-center gap-2 transition-colors shadow-sm"
+          >
+            <Shield size={15} />
+            Log in as HOD Admin (Dr. M. Rehan Ashraf)
+          </button>
         </div>
 
         {error && (
@@ -128,85 +110,22 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {isRegister && (
-            <>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1">
-                  Full Name
-                </label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30">
-                  <UserIcon size={16} className="text-[hsl(var(--muted-foreground))]" />
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ali Ahmad"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="w-full bg-transparent text-xs outline-none"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1">
+                Full Name
+              </label>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30">
+                <UserIcon size={16} className="text-[hsl(var(--muted-foreground))]" />
+                <input
+                  type="text"
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Dr. M. Rehan Ashraf"
+                  className="w-full bg-transparent text-xs outline-none"
+                />
               </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1">
-                  Account Type
-                </label>
-                <select
-                  value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value as any })}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] outline-none font-bold"
-                >
-                  <option value="STUDENT">Student</option>
-                  <option value="ADMIN">Administrator / HOD</option>
-                </select>
-              </div>
-
-              {form.role === "STUDENT" && (
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase mb-1">
-                      Student ID
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="FA25-BCS-010"
-                      value={form.studentId}
-                      onChange={(e) => setForm({ ...form, studentId: e.target.value })}
-                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase mb-1">
-                      Programme
-                    </label>
-                    <select
-                      value={form.programme}
-                      onChange={(e) => setForm({ ...form, programme: e.target.value })}
-                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]"
-                    >
-                      <option value="BSCS">BSCS</option>
-                      <option value="BSSE">BSSE</option>
-                      <option value="MSCS">MSCS</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase mb-1">
-                      Semester
-                    </label>
-                    <select
-                      value={form.semester}
-                      onChange={(e) => setForm({ ...form, semester: e.target.value })}
-                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]"
-                    >
-                      <option value="1">1</option>
-                      <option value="2">2</option>
-                      <option value="3">3</option>
-                      <option value="5">5</option>
-                      <option value="7">7</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-            </>
+            </div>
           )}
 
           <div>
@@ -218,9 +137,9 @@ export default function LoginPage() {
               <input
                 type="email"
                 required
-                placeholder="student@cui.edu.pk"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="admin@cui.edu.pk"
                 className="w-full bg-transparent text-xs outline-none"
               />
             </div>
@@ -235,9 +154,9 @@ export default function LoginPage() {
               <input
                 type="password"
                 required
-                placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="••••••••"
                 className="w-full bg-transparent text-xs outline-none"
               />
             </div>
@@ -246,23 +165,20 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-[hsl(var(--primary))] text-white font-extrabold text-xs rounded-lg shadow-sm hover:bg-[#245f58] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full py-2.5 rounded-lg bg-[hsl(var(--primary))] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md hover:bg-[#205249] transition-colors disabled:opacity-50"
           >
-            {loading ? "Processing..." : isRegister ? "Create Account" : "Sign In"}
-            <ArrowRight size={14} />
+            {loading ? "Authenticating…" : isRegister ? "Create Admin Account" : "Sign In to HOD Dashboard"}
+            <ArrowRight size={15} />
           </button>
         </form>
 
-        <div className="mt-6 text-center border-t border-[hsl(var(--border))] pt-4">
+        <div className="mt-6 text-center">
           <button
             type="button"
-            onClick={() => {
-              setIsRegister(!isRegister);
-              setError("");
-            }}
-            className="text-xs font-extrabold text-[hsl(var(--primary))] hover:underline"
+            onClick={() => setIsRegister(!isRegister)}
+            className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] font-bold transition-colors"
           >
-            {isRegister ? "Already have an account? Sign In" : "Need a student or admin account? Register"}
+            {isRegister ? "Already have an admin account? Sign in" : "Need an admin account? Register"}
           </button>
         </div>
       </div>
