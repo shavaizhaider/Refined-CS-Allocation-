@@ -477,11 +477,119 @@ router.get("/workload", async (_req, res): Promise<void> => {
       sections: assigned.length,
       theory: assigned.reduce((s, o) => s + n(o.theory), 0),
       lab: assigned.reduce((s, o) => s + n(o.lab), 0),
-      total: assigned.reduce((s, o) => s + n(o.projectedWorkload || o.projected_workload), 0),
+      total: assigned.reduce((s, o) => s + n(o.projectedWorkload || o.projected_workload || o.theory + o.lab), 0),
     };
   });
 
   res.json(rows);
+});
+
+router.post("/faculty", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
+  const { name, designation, type, programme, department, expertise, maximumLoad, email, phone, bioNotes } = req.body;
+  if (!name || !designation) {
+    res.status(400).json({ error: "Name and designation are required" });
+    return;
+  }
+
+  const initials = name.split(" ").map((p: string) => p[0]).join("").slice(0, 3).toUpperCase();
+  const facData: any = {
+    id: memoryStore.faculty.length + 100,
+    name: name.trim(),
+    initials,
+    designation: designation.trim(),
+    type: type || "Permanent",
+    programme: programme || "BSCS",
+    department: department || "Computer Science",
+    expertise: expertise || "Computer Science",
+    currentLoad: "0",
+    maximumLoad: String(maximumLoad || 12),
+    status: "Balanced",
+    email: email ? email.trim() : `${name.toLowerCase().replace(/\s+/g, ".")}@cui.edu.pk`,
+    phone: phone ? phone.trim() : "+923000000000",
+    bioNotes: bioNotes || "",
+  };
+
+  try {
+    const [row] = await db.insert(facultyTable).values(facData).returning();
+    if (row) {
+      res.status(201).json({ ...row, currentLoad: 0, maximumLoad: Number(row.maximumLoad) });
+      return;
+    }
+  } catch (_) {}
+
+  memoryStore.faculty.push(facData);
+  res.status(201).json({ ...facData, currentLoad: 0, maximumLoad: Number(facData.maximumLoad) });
+});
+
+router.put("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const { name, designation, type, programme, department, expertise, maximumLoad, email, phone, bioNotes } = req.body;
+  if (!id) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  let f = memoryStore.faculty.find((x) => x.id === id);
+  if (f) {
+    if (name) f.name = name.trim();
+    if (designation) f.designation = designation.trim();
+    if (type) f.type = type;
+    if (programme) f.programme = programme;
+    if (department) f.department = department;
+    if (expertise) f.expertise = expertise;
+    if (maximumLoad) f.maximumLoad = String(maximumLoad);
+    if (email) f.email = email.trim();
+    if (phone) f.phone = phone.trim();
+    if (bioNotes !== undefined) f.bioNotes = bioNotes;
+  }
+
+  res.json(f || { success: true });
+});
+
+router.delete("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid ID" }); return; }
+  memoryStore.faculty = memoryStore.faculty.filter((x) => x.id !== id);
+  res.json({ success: true, deleted: id });
+});
+
+router.post("/offerings", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
+  const { courseCode, courseTitle, programme, semester, section, credit, theory, lab, capacity } = req.body;
+  if (!courseCode || !courseTitle || !section) {
+    res.status(400).json({ error: "Course Code, Course Title, and Section are required" });
+    return;
+  }
+
+  const newOffering: any = {
+    id: memoryStore.offerings.length + 500,
+    courseId: null,
+    courseCode: courseCode.trim().toUpperCase(),
+    courseTitle: courseTitle.trim(),
+    programme: programme || "BSCS",
+    semester: String(semester || "1"),
+    section: section.trim().toUpperCase(),
+    credit: credit || "3(3,0)",
+    theory: String(theory || 3),
+    lab: String(lab || 0),
+    facultyId: null,
+    faculty: null,
+    labFacultyId: null,
+    labFaculty: null,
+    previousFaculty: null,
+    capacity: Number(capacity || 40),
+    enrolled: 0,
+    projectedWorkload: String(Number(theory || 3) + Number(lab || 0)),
+    status: "Unallocated",
+    availableSeats: Number(capacity || 40),
+  };
+
+  try {
+    const [row] = await db.insert(offeringsTable).values(newOffering).returning();
+    if (row) {
+      res.status(201).json({ ...row, availableSeats: row.capacity - row.enrolled });
+      return;
+    }
+  } catch (_) {}
+
+  memoryStore.offerings.push(newOffering);
+  res.status(201).json(newOffering);
 });
 
 // ----------------------------------------------------

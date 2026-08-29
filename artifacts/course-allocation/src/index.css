@@ -165,3 +165,41 @@
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .animate-rise-in { animation: rise-in .45s ease-out both; }
 .skeleton { background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--card)) 50%, hsl(var(--muted)) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+
+/* ─── Micro-Interactions & Animations ─── */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+@keyframes drop-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(40, 105, 94, 0.4); border-color: rgba(40, 105, 94, 0.8); }
+  50% { box-shadow: 0 0 18px rgba(40, 105, 94, 0.8); border-color: rgba(40, 105, 94, 1); }
+}
+.dropzone-glow {
+  animation: drop-glow 1.5s infinite;
+}
+
+.card-tilt-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-tilt-hover:hover {
+  transform: translateY(-3px) scale(1.005);
+  box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.08), 0 4px 8px -2px rgba(0, 0, 0, 0.04);
+}
+
+.btn-tactile {
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+.btn-tactile:active {
+  transform: scale(0.97);
+}
+
+@keyframes progress-fill {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: var(--target-offset); }
+}

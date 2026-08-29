@@ -26,6 +26,9 @@ export interface MemoryFaculty {
   currentLoad: string;
   maximumLoad: string;
   status: string;
+  email?: string;
+  phone?: string;
+  bioNotes?: string;
 }
 
 export interface MemoryCourse {
