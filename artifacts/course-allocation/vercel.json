@@ -1,0 +1,1 @@
+{"rewrites":[{"source":"/api/(.*)","destination":"https://refined-cs-allocation.onrender.com/api/$1"}]} 
