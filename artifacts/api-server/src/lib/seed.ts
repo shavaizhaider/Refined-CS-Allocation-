@@ -112,6 +112,13 @@ async function ensureSchema() {
 export async function seedDatabase() {
   try {
     await ensureSchema();
+    try {
+      await db
+        .update(usersTable)
+        .set({ role: "ADMIN" })
+        .where(eq(usersTable.email, "admin@cui.edu.pk"));
+    } catch (_) {}
+
     const existingUsers = await db.select().from(usersTable).limit(1);
 
     if (!existingUsers.length) {

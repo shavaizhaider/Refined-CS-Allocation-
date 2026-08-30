@@ -17,6 +17,14 @@ export interface AuthRequest extends Request {
   user?: AuthenticatedUser;
 }
 
+export function normalizeRole(role?: string | null): "ADMIN" | "FACULTY" | "STUDENT" {
+  if (!role) return "STUDENT";
+  const r = role.trim().toUpperCase().replace(/[\s_\-]/g, "");
+  if (r === "ADMIN" || r === "HOD" || r === "HODADMIN" || r.includes("ADMIN") || r.includes("HOD")) return "ADMIN";
+  if (r === "FACULTY" || r.includes("TEACHER") || r.includes("PROFESSOR")) return "FACULTY";
+  return "STUDENT";
+}
+
 export function authenticate(req: AuthRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ")
@@ -43,8 +51,13 @@ export function requireRole(...allowedRoles: ("ADMIN" | "FACULTY" | "STUDENT")[]
       res.status(401).json({ error: "Authentication required" });
       return;
     }
-    if (!allowedRoles.includes(req.user.role)) {
-      res.status(403).json({ error: `Access denied. Requires one of: ${allowedRoles.join(", ")}.` });
+    const userRole = normalizeRole(req.user.role);
+    const normalizedAllowed = allowedRoles.map((r) => normalizeRole(r));
+
+    if (!normalizedAllowed.includes(userRole)) {
+      res.status(403).json({
+        error: `Access Denied: Your account role (${req.user.role || 'Unspecified'}) is not authorized to perform this action. Requires role: ${allowedRoles.join(", ")}.`,
+      });
       return;
     }
     next();

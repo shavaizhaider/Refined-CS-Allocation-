@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import { eq, and, gt } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { authenticate, JWT_SECRET, type AuthRequest } from "../middlewares/auth";
+import { authenticate, JWT_SECRET, normalizeRole, type AuthRequest } from "../middlewares/auth";
 import { memoryStore } from "../lib/memory-store";
 
 const router: IRouter = Router();
@@ -71,11 +71,22 @@ router.post("/login", async (req, res): Promise<void> => {
     return;
   }
 
+  // Backfill and normalize role (HOD Admin or admin accounts get "ADMIN")
+  const effectiveRole = (normalizedEmail === "admin@cui.edu.pk" || normalizeRole(user.role) === "ADMIN")
+    ? "ADMIN"
+    : normalizeRole(user.role);
+
+  user.role = effectiveRole;
+
+  try {
+    await db.update(usersTable).set({ role: effectiveRole }).where(eq(usersTable.id, user.id));
+  } catch (_) {}
+
   const payload = {
     id: user.id,
     email: user.email,
     name: user.name,
-    role: user.role,
+    role: effectiveRole,
     studentId: user.studentId || user.student_id,
     programme: user.programme,
     semester: user.semester,
@@ -379,6 +390,14 @@ router.post("/reset-password", async (req, res): Promise<void> => {
 // ── Auth Check & Logout Endpoints ──────────────────────────────────────────────
 
 router.get("/me", authenticate, (req: AuthRequest, res): void => {
+  if (req.user) {
+    const norm = normalizeRole(req.user.role);
+    if (req.user.email?.toLowerCase() === "admin@cui.edu.pk" || norm === "ADMIN") {
+      req.user.role = "ADMIN";
+    } else {
+      req.user.role = norm;
+    }
+  }
   res.json({ user: req.user });
 });
 
