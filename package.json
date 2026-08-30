@@ -5,6 +5,7 @@
   "scripts": {
     "preinstall": "node -e \"console.log('Using pnpm workspace')\"",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "seed:admin": "pnpm --filter @workspace/api-server run seed:admin",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, eq, ilike } from "drizzle-orm";
+import { and, eq, ilike, or } from "drizzle-orm";
 import {
   db,
   academicSessionsTable,
@@ -545,9 +545,77 @@ router.put("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthR
 
 router.delete("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
   const id = Number(req.params.id);
-  if (!id) { res.status(400).json({ error: "Invalid ID" }); return; }
+  if (!id) { res.status(400).json({ error: "Invalid faculty ID" }); return; }
+
+  let targetName: string | null = null;
+
+  // Locate faculty member by ID
+  const memFac = memoryStore.faculty.find((x) => x.id === id);
+  if (memFac) {
+    targetName = memFac.name;
+  } else {
+    try {
+      const [dbFac] = await db.select().from(facultyTable).where(eq(facultyTable.id, id));
+      if (dbFac) targetName = dbFac.name;
+    } catch (_) {}
+  }
+
+  // Cascade unassign any section offerings assigned to this faculty member in DB & MemoryStore
+  let unassignedCount = 0;
+  if (targetName) {
+    try {
+      await db
+        .update(offeringsTable)
+        .set({ facultyId: null, faculty: null, status: "Unallocated" })
+        .where(or(eq(offeringsTable.facultyId, id), eq(offeringsTable.faculty, targetName)));
+    } catch (_) {}
+
+    memoryStore.offerings.forEach((o) => {
+      if (o.facultyId === id || o.faculty === targetName) {
+        o.facultyId = null;
+        o.faculty = null;
+        o.status = "Unallocated";
+        unassignedCount++;
+      }
+      if (o.labFacultyId === id || o.labFaculty === targetName) {
+        o.labFacultyId = null;
+        o.labFaculty = null;
+      }
+    });
+  }
+
+  // Delete from PostgreSQL DB table
+  try {
+    await db.delete(facultyTable).where(eq(facultyTable.id, id));
+  } catch (err) {
+    console.warn("DB faculty delete note:", (err as Error).message);
+  }
+
+  // Remove from MemoryStore
   memoryStore.faculty = memoryStore.faculty.filter((x) => x.id !== id);
-  res.json({ success: true, deleted: id });
+
+  // Log activity
+  const detail = targetName
+    ? `Archived faculty member ${targetName}${unassignedCount > 0 ? ` (${unassignedCount} section offerings unassigned)` : ''}`
+    : `Archived faculty member #${id}`;
+
+  try {
+    await db.insert(activityTable).values({
+      user: (req as any).user?.name || "HOD Admin",
+      action: "Faculty Archived",
+      detail,
+    });
+  } catch (_) {
+    memoryStore.activity.push({
+      id: memoryStore.activity.length + 1,
+      user: (req as any).user?.name || "HOD Admin",
+      action: "Faculty Archived",
+      detail,
+      timestamp: new Date(),
+    });
+  }
+
+  res.json({ success: true, deleted: id, unassignedSections: unassignedCount, message: detail });
 });
 
 router.post("/offerings", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {

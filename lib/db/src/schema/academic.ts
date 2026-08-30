@@ -7,10 +7,12 @@ export const usersTable = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
-  role: text("role").notNull().default("STUDENT"), // "STUDENT" | "ADMIN"
+  role: text("role").notNull().default("STUDENT"), // "STUDENT" | "ADMIN" | "FACULTY"
   studentId: text("student_id"),
   programme: text("programme"),
   semester: text("semester"),
+  resetToken: text("reset_token"),
+  resetTokenExpires: timestamp("reset_token_expires", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

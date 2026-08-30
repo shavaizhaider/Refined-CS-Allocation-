@@ -7,7 +7,7 @@ export interface AuthenticatedUser {
   id: number;
   email: string;
   name: string;
-  role: "STUDENT" | "ADMIN";
+  role: "ADMIN" | "FACULTY" | "STUDENT";
   studentId?: string | null;
   programme?: string | null;
   semester?: string | null;
@@ -37,14 +37,14 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   }
 }
 
-export function requireRole(role: "STUDENT" | "ADMIN") {
+export function requireRole(...allowedRoles: ("ADMIN" | "FACULTY" | "STUDENT")[]) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({ error: "Authentication required" });
       return;
     }
-    if (req.user.role !== role) {
-      res.status(403).json({ error: `Access denied. Requires ${role} role.` });
+    if (!allowedRoles.includes(req.user.role)) {
+      res.status(403).json({ error: `Access denied. Requires one of: ${allowedRoles.join(", ")}.` });
       return;
     }
     next();

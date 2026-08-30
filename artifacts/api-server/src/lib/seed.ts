@@ -23,8 +23,13 @@ async function ensureSchema() {
       student_id TEXT,
       programme TEXT,
       semester TEXT,
+      reset_token TEXT,
+      reset_token_expires TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS academic_sessions (
       id SERIAL PRIMARY KEY,

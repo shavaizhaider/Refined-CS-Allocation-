@@ -35,21 +35,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function checkAuth() {
       const savedToken = localStorage.getItem("cs_token");
-      if (!savedToken) {
-        setIsLoading(false);
-        return;
-      }
-
       try {
+        const headers: Record<string, string> = {};
+        if (savedToken) headers["Authorization"] = `Bearer ${savedToken}`;
+
         const res = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${savedToken}` },
+          headers,
+          credentials: "include",
         });
 
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
           localStorage.setItem("cs_user", JSON.stringify(data.user));
-        } else {
+        } else if (savedToken) {
           localStorage.removeItem("cs_token");
           localStorage.removeItem("cs_user");
           setToken(null);
@@ -77,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     localStorage.removeItem("cs_token");
     localStorage.removeItem("cs_user");
-    fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
   };
 
   return (

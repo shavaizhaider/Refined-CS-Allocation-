@@ -7,10 +7,12 @@ export interface MemoryUser {
   email: string;
   passwordHash: string;
   name: string;
-  role: "ADMIN" | "STUDENT";
+  role: "ADMIN" | "STUDENT" | "FACULTY";
   studentId: string | null;
   programme: string | null;
   semester: string | null;
+  resetToken?: string | null;
+  resetTokenExpires?: Date | null;
   createdAt: Date;
 }
 

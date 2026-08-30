@@ -2101,9 +2101,14 @@ function FacultyPage() {
     if (!facForm.name || !facForm.designation) return;
 
     try {
+      const token = localStorage.getItem('cs_token');
       const res = await fetch('/api/faculty', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
         body: JSON.stringify(facForm),
       });
 
@@ -2112,8 +2117,14 @@ function FacultyPage() {
         setAddFacultyModal(false);
         setFacForm({ name: '', designation: 'Assistant Professor', type: 'Permanent', programme: 'BSCS', department: 'Computer Science', expertise: 'Computer Science', maximumLoad: 12, email: '', phone: '', bioNotes: '' });
         qc.invalidateQueries({ queryKey: getListFacultyQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast(errData.error || errData.message || `Failed to add faculty (HTTP ${res.status})`, 'error');
       }
-    } catch { toast('Failed to add faculty member', 'error'); }
+    } catch (err: any) {
+      toast(err.message || 'Failed to add faculty member', 'error');
+    }
   };
 
   const handleSaveEditFaculty = async (e: React.FormEvent) => {
@@ -2121,9 +2132,14 @@ function FacultyPage() {
     if (!editFaculty) return;
 
     try {
+      const token = localStorage.getItem('cs_token');
       const res = await fetch(`/api/faculty/${editFaculty.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
         body: JSON.stringify(editFaculty),
       });
 
@@ -2131,19 +2147,43 @@ function FacultyPage() {
         toast(`Updated faculty member ${editFaculty.name}`, 'success');
         setEditFaculty(null);
         qc.invalidateQueries({ queryKey: getListFacultyQueryKey() });
+        qc.invalidateQueries({ queryKey: getListOfferingsQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast(errData.error || errData.message || `Failed to update faculty (HTTP ${res.status})`, 'error');
       }
-    } catch { toast('Failed to update faculty', 'error'); }
+    } catch (err: any) {
+      toast(err.message || 'Failed to update faculty', 'error');
+    }
   };
 
   const handleDeleteFaculty = async (id: number, name: string) => {
     if (!confirm(`Archive faculty member ${name}?`)) return;
     try {
-      const res = await fetch(`/api/faculty/${id}`, { method: 'DELETE' });
+      const token = localStorage.getItem('cs_token');
+      const res = await fetch(`/api/faculty/${id}`, {
+        method: 'DELETE',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+      });
+
       if (res.ok) {
-        toast(`Archived faculty member ${name}`, 'info');
+        const data = await res.json().catch(() => ({}));
+        const msg = data.message || `Archived faculty member ${name}`;
+        toast(msg, 'info');
         qc.invalidateQueries({ queryKey: getListFacultyQueryKey() });
+        qc.invalidateQueries({ queryKey: getListOfferingsQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast(errData.error || errData.message || `Failed to archive faculty member (HTTP ${res.status})`, 'error');
       }
-    } catch { toast('Failed to archive', 'error'); }
+    } catch (err: any) {
+      toast(err.message || 'Network error attempting to archive faculty member', 'error');
+    }
   };
 
   return (
