@@ -590,24 +590,25 @@ router.get("/workload", async (_req, res): Promise<void> => {
 });
 
 router.post("/faculty", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
+  await ensureSeeded();
   const { name, designation, type, programme, department, expertise, maximumLoad, email, phone, bioNotes } = req.body;
   if (!name || !designation) {
     res.status(400).json({ error: "Name and designation are required" });
     return;
   }
 
-  // Normalize phone to digits-only
-  function normalizePhone(raw?: string): string {
-    if (!raw) return "";
+  function normalizePhone(raw?: string): string | null {
+    if (!raw) return null;
     let digits = String(raw).replace(/\D/g, "");
     if (digits.startsWith("03") && digits.length === 11) digits = "92" + digits.slice(1);
     else if (digits.length === 10 && !digits.startsWith("92")) digits = "92" + digits;
-    return digits;
+    return digits || null;
   }
 
+  const cleanPhone = normalizePhone(phone);
   const initials = name.split(" ").map((p: string) => p[0]).join("").slice(0, 3).toUpperCase();
-  const facData: any = {
-    id: memoryStore.faculty.length + 100,
+
+  const dbInsertData = {
     name: name.trim(),
     initials,
     designation: designation.trim(),
@@ -619,28 +620,38 @@ router.post("/faculty", authenticate, requireRole("ADMIN"), async (req: AuthRequ
     maximumLoad: String(maximumLoad || 12),
     status: "Balanced",
     email: email ? email.trim() : `${name.toLowerCase().replace(/\s+/g, ".")}@cui.edu.pk`,
-    phone: normalizePhone(phone) || null,
+    phone: cleanPhone,
     bioNotes: bioNotes || "",
   };
 
   try {
-    const [row] = await db.insert(facultyTable).values(facData).returning();
+    const [row] = await db.insert(facultyTable).values(dbInsertData).returning();
     if (row) {
-      res.status(201).json({ ...row, currentLoad: 0, maximumLoad: Number(row.maximumLoad) });
+      const created = { ...row, currentLoad: 0, maximumLoad: Number(row.maximumLoad) };
+      memoryStore.faculty.push(created);
+      res.status(201).json(created);
       return;
     }
-  } catch (_) {}
+  } catch (err) {
+    console.error("Error inserting faculty to DB:", (err as Error).message);
+  }
 
-  memoryStore.faculty.push(facData);
-  res.status(201).json({ ...facData, currentLoad: 0, maximumLoad: Number(facData.maximumLoad) });
+  const memData = {
+    id: memoryStore.faculty.length + 100,
+    ...dbInsertData,
+    currentLoad: 0,
+    maximumLoad: Number(maximumLoad || 12),
+  };
+  memoryStore.faculty.push(memData);
+  res.status(201).json(memData);
 });
 
 router.put("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
+  await ensureSeeded();
   const id = Number(req.params.id);
   const { name, designation, type, programme, department, expertise, maximumLoad, email, phone, bioNotes } = req.body;
   if (!id) { res.status(400).json({ error: "Invalid ID" }); return; }
 
-  // Normalize phone to clean digits-only Pakistani number
   function normalizePhone(raw?: string): string | null {
     if (!raw) return null;
     let digits = String(raw).replace(/\D/g, "");
@@ -649,7 +660,6 @@ router.put("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthR
     return digits || null;
   }
 
-  const normalizedPhone = normalizePhone(phone);
   const updatePayload: Record<string, any> = {};
   if (name) updatePayload.name = name.trim();
   if (designation) updatePayload.designation = designation.trim();
@@ -658,11 +668,10 @@ router.put("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthR
   if (department) updatePayload.department = department;
   if (expertise) updatePayload.expertise = expertise;
   if (maximumLoad) updatePayload.maximumLoad = String(maximumLoad);
-  if (email) updatePayload.email = email.trim();
-  if (normalizedPhone) updatePayload.phone = normalizedPhone;
+  if (email !== undefined) updatePayload.email = email ? email.trim() : null;
+  if (phone !== undefined) updatePayload.phone = normalizePhone(phone) || (phone ? String(phone).trim() : null);
   if (bioNotes !== undefined) updatePayload.bioNotes = bioNotes;
 
-  // Update in PostgreSQL
   let dbRow: any = null;
   try {
     const [updated] = await db
@@ -672,10 +681,9 @@ router.put("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthR
       .returning();
     if (updated) dbRow = updated;
   } catch (err) {
-    console.warn("PUT /faculty DB update error:", (err as Error).message);
+    console.error("PUT /faculty/:id DB update error:", (err as Error).message);
   }
 
-  // Also update MemoryStore
   const memFac = memoryStore.faculty.find((x: any) => x.id === id);
   if (memFac) {
     Object.assign(memFac, updatePayload);
