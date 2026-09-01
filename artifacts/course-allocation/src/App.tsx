@@ -75,17 +75,27 @@ import { Link, Route, Switch, useLocation } from 'wouter';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
-function formatWhatsAppUrl(phoneStr?: string, messageText?: string) {
-  const raw = phoneStr ? String(phoneStr) : "+923000000000";
-  let digits = raw.replace(/\D/g, "");
-  if (digits.startsWith("03") && digits.length === 11) {
-    digits = "92" + digits.slice(1);
+function formatWhatsAppUrl(phoneStr?: string | null, messageText?: string): string {
+  // Step 1: Always strip EVERY non-digit character — handles +, spaces, dashes, parens, etc.
+  const raw = phoneStr ? String(phoneStr) : "";
+  let digits = raw.replace(/\D/g, ""); // removes +, spaces, -, (, ), etc.
+
+  // Step 2: Normalize to Pakistani country code 92
+  if (digits.startsWith("0092")) {
+    digits = digits.slice(2); // 0092xxx → 92xxx
+  } else if (digits.startsWith("03") && digits.length === 11) {
+    digits = "92" + digits.slice(1); // 03xx-xxxxxxx → 923xx-xxxxxxx
   } else if (digits.length === 10 && !digits.startsWith("92")) {
-    digits = "92" + digits;
+    digits = "92" + digits; // 10-digit local → add 92
   }
-  if (!digits) digits = "923000000000";
-  const baseUrl = `https://wa.me/${digits}`;
-  return messageText ? `${baseUrl}?text=${encodeURIComponent(messageText)}` : baseUrl;
+
+  // Step 3: Fallback if nothing valid
+  if (!digits || digits.length < 10) digits = "923000000000";
+
+  const url = `https://wa.me/${digits}`;
+  // Debug: log the exact URL being opened (visible in browser console)
+  if (typeof console !== "undefined") console.debug("[WhatsApp]", { raw: phoneStr, digits, url });
+  return messageText ? `${url}?text=${encodeURIComponent(messageText)}` : url;
 }
 
 const queryClient = new QueryClient({

@@ -38,6 +38,9 @@ export const facultyTable = pgTable("faculty", {
   currentLoad: numeric("current_load").notNull().default("0"),
   maximumLoad: numeric("maximum_load").notNull().default("12"),
   status: text("status").notNull().default("Balanced"),
+  email: text("email"),
+  phone: text("phone"),
+  bioNotes: text("bio_notes"),
 });
 
 export const coursesTable = pgTable("courses", {

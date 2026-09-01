@@ -55,6 +55,11 @@ async function ensureSchema() {
       status TEXT NOT NULL DEFAULT 'Balanced'
     );
 
+    ALTER TABLE faculty ADD COLUMN IF NOT EXISTS email TEXT;
+    ALTER TABLE faculty ADD COLUMN IF NOT EXISTS phone TEXT;
+    ALTER TABLE faculty ADD COLUMN IF NOT EXISTS bio_notes TEXT;
+    ALTER TABLE faculty ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE;
+
     CREATE TABLE IF NOT EXISTS courses (
       id SERIAL PRIMARY KEY,
       code TEXT NOT NULL UNIQUE,

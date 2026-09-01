@@ -596,6 +596,15 @@ router.post("/faculty", authenticate, requireRole("ADMIN"), async (req: AuthRequ
     return;
   }
 
+  // Normalize phone to digits-only
+  function normalizePhone(raw?: string): string {
+    if (!raw) return "";
+    let digits = String(raw).replace(/\D/g, "");
+    if (digits.startsWith("03") && digits.length === 11) digits = "92" + digits.slice(1);
+    else if (digits.length === 10 && !digits.startsWith("92")) digits = "92" + digits;
+    return digits;
+  }
+
   const initials = name.split(" ").map((p: string) => p[0]).join("").slice(0, 3).toUpperCase();
   const facData: any = {
     id: memoryStore.faculty.length + 100,
@@ -610,7 +619,7 @@ router.post("/faculty", authenticate, requireRole("ADMIN"), async (req: AuthRequ
     maximumLoad: String(maximumLoad || 12),
     status: "Balanced",
     email: email ? email.trim() : `${name.toLowerCase().replace(/\s+/g, ".")}@cui.edu.pk`,
-    phone: phone ? phone.trim() : "+923000000000",
+    phone: normalizePhone(phone) || null,
     bioNotes: bioNotes || "",
   };
 
@@ -631,21 +640,48 @@ router.put("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthR
   const { name, designation, type, programme, department, expertise, maximumLoad, email, phone, bioNotes } = req.body;
   if (!id) { res.status(400).json({ error: "Invalid ID" }); return; }
 
-  let f = memoryStore.faculty.find((x) => x.id === id);
-  if (f) {
-    if (name) f.name = name.trim();
-    if (designation) f.designation = designation.trim();
-    if (type) f.type = type;
-    if (programme) f.programme = programme;
-    if (department) f.department = department;
-    if (expertise) f.expertise = expertise;
-    if (maximumLoad) f.maximumLoad = String(maximumLoad);
-    if (email) f.email = email.trim();
-    if (phone) f.phone = phone.trim();
-    if (bioNotes !== undefined) f.bioNotes = bioNotes;
+  // Normalize phone to clean digits-only Pakistani number
+  function normalizePhone(raw?: string): string | null {
+    if (!raw) return null;
+    let digits = String(raw).replace(/\D/g, "");
+    if (digits.startsWith("03") && digits.length === 11) digits = "92" + digits.slice(1);
+    else if (digits.length === 10 && !digits.startsWith("92")) digits = "92" + digits;
+    return digits || null;
   }
 
-  res.json(f || { success: true });
+  const normalizedPhone = normalizePhone(phone);
+  const updatePayload: Record<string, any> = {};
+  if (name) updatePayload.name = name.trim();
+  if (designation) updatePayload.designation = designation.trim();
+  if (type) updatePayload.type = type;
+  if (programme) updatePayload.programme = programme;
+  if (department) updatePayload.department = department;
+  if (expertise) updatePayload.expertise = expertise;
+  if (maximumLoad) updatePayload.maximumLoad = String(maximumLoad);
+  if (email) updatePayload.email = email.trim();
+  if (normalizedPhone) updatePayload.phone = normalizedPhone;
+  if (bioNotes !== undefined) updatePayload.bioNotes = bioNotes;
+
+  // Update in PostgreSQL
+  let dbRow: any = null;
+  try {
+    const [updated] = await db
+      .update(facultyTable)
+      .set(updatePayload)
+      .where(eq(facultyTable.id, id))
+      .returning();
+    if (updated) dbRow = updated;
+  } catch (err) {
+    console.warn("PUT /faculty DB update error:", (err as Error).message);
+  }
+
+  // Also update MemoryStore
+  const memFac = memoryStore.faculty.find((x: any) => x.id === id);
+  if (memFac) {
+    Object.assign(memFac, updatePayload);
+  }
+
+  res.json(dbRow || memFac || { success: true, id });
 });
 
 router.delete("/faculty/:id", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
