@@ -75,6 +75,19 @@ import { Link, Route, Switch, useLocation } from 'wouter';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
+function formatWhatsAppUrl(phoneStr?: string, messageText?: string) {
+  const raw = phoneStr ? String(phoneStr) : "+923000000000";
+  let digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("03") && digits.length === 11) {
+    digits = "92" + digits.slice(1);
+  } else if (digits.length === 10 && !digits.startsWith("92")) {
+    digits = "92" + digits;
+  }
+  if (!digits) digits = "923000000000";
+  const baseUrl = `https://wa.me/${digits}`;
+  return messageText ? `${baseUrl}?text=${encodeURIComponent(messageText)}` : baseUrl;
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -633,7 +646,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       {/* Cycle Modal */}
       {showCycleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setShowCycleModal(false); }}>
           <div className="w-full max-w-md rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <div>
@@ -676,7 +689,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       {/* Master Allocation Report Modal */}
       {showMasterReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setShowMasterReport(false); }}>
           <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-8 shadow-2xl">
             <div className="flex items-center justify-between mb-6 border-b border-[hsl(var(--border))] pb-4">
               <div>
@@ -994,7 +1007,7 @@ function Dashboard() {
 
       {/* Affected Faculty Drawer */}
       {selectedLoadFilter && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setSelectedLoadFilter(null); }}>
           <div className="w-full max-w-md h-full bg-[hsl(var(--card))] border-l border-[hsl(var(--border))] p-6 shadow-2xl overflow-y-auto animate-in slide-in-from-right">
             <div className="flex items-center justify-between mb-6 border-b border-[hsl(var(--border))] pb-4">
               <div>
@@ -1034,6 +1047,7 @@ function PlanningPage() {
 
   const [tab, setTab] = useState<'ALL' | 'ACTIVE' | 'DRAFTS' | 'ARCHIVED'>('ALL');
   const [cloneModal, setCloneModal] = useState(false);
+  const [cloneSourceCode, setCloneSourceCode] = useState('FA25');
   const [cloneCode, setCloneCode] = useState('SP26');
   const [cloneLabel, setCloneLabel] = useState('Spring 2026 Cycle');
 
@@ -1060,19 +1074,42 @@ function PlanningPage() {
   });
 
   const handleClone = async () => {
+    if (!cloneCode || !cloneLabel) {
+      toast('Please enter a new cycle code and label', 'error');
+      return;
+    }
     try {
+      const token = localStorage.getItem('cs_token');
       const res = await fetch('/api/sessions/clone', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceCode: activeCycleCode, newCode: cloneCode, newLabel: cloneLabel }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          sourceCode: cloneSourceCode || activeCycleCode,
+          newCode: cloneCode,
+          newLabel: cloneLabel,
+          term: 'Spring',
+          year: 2026,
+        }),
       });
 
       if (res.ok) {
-        toast(`Cloned section offerings into ${cloneCode}!`, 'success');
+        const data = await res.json().catch(() => ({}));
+        toast(`Cloned ${data.clonedOfferings || ''} section offerings from ${cloneSourceCode || activeCycleCode} into ${cloneCode}!`, 'success');
         setCloneModal(false);
         qc.invalidateQueries({ queryKey: getListSessionsQueryKey() });
+        qc.invalidateQueries({ queryKey: getListOfferingsQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast(errData.error || errData.message || 'Clone failed', 'error');
       }
-    } catch { toast('Clone failed', 'error'); }
+    } catch (err: any) {
+      toast(err.message || 'Clone failed', 'error');
+    }
   };
 
   const toggleLock = async (s: any) => {
@@ -1083,36 +1120,42 @@ function PlanningPage() {
         body: JSON.stringify({ locked: !s.locked }),
       });
       if (res.ok) {
-        toast(`Set lock status for ${s.code} to ${!s.locked}`, 'info');
+        toast(`Cycle ${s.code} ${s.locked ? 'unlocked' : 'locked'}!`, 'info');
         qc.invalidateQueries({ queryKey: getListSessionsQueryKey() });
       }
-    } catch { toast('Lock toggle error', 'error'); }
+    } catch { toast('Update failed', 'error'); }
   };
 
   return (
     <>
       <PageHeader
-        eyebrow="Workspace / planning"
-        title="Semester Planning Workspace"
-        description="Manage academic sessions, carry over previous term cycles, and freeze approved cycles."
+        eyebrow="Planning / academic sessions"
+        title="Academic Cycle Management & Sorting"
+        description="Pin active cycles (FA25), manage session locks, and carry over course section offerings into new planning workspaces."
         actions={
-          <Button testId="button-carry-over" onClick={() => setCloneModal(true)}>
-            <Copy size={14} />Carry Over Previous Cycle
+          <Button testId="button-carry-over-cycle" onClick={() => setCloneModal(true)}>
+            <Copy size={15} /> Carry Over / Clone Cycle
           </Button>
         }
       />
 
-      {/* Tabs */}
-      <div className="mb-6 flex items-center gap-2 border-b border-[hsl(var(--border))] pb-3">
-        {(['ALL', 'ACTIVE', 'DRAFTS', 'ARCHIVED'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cn('px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all', tab === t ? 'bg-[hsl(var(--primary))] text-white shadow-sm' : 'bg-[hsl(var(--card))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--muted))]')}
-          >
-            {t}
-          </button>
-        ))}
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {(['ALL', 'ACTIVE', 'DRAFTS', 'ARCHIVED'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                'rounded-xl px-4 py-2 text-xs font-bold transition-all',
+                tab === t
+                  ? 'bg-[#28695e] text-white dark:bg-[#bcd8cb] dark:text-[#1a3832] shadow-sm'
+                  : 'bg-[hsl(var(--card))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
       <QueryState loading={sessions.isLoading} error={sessions.error} onRetry={() => sessions.refetch()} empty={!filteredSessions.length} emptyText="No sessions found.">
@@ -1123,35 +1166,42 @@ function PlanningPage() {
               <div
                 key={s.id}
                 className={cn(
-                  'rounded-2xl border p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all shadow-sm',
+                  'rounded-3xl border p-6 transition-all shadow-sm',
                   isActive
-                    ? 'border-[#28695e] bg-[#eef6f2]/60 dark:bg-[#19332c]/50 shadow-md ring-1 ring-[#28695e]'
-                    : 'border-[hsl(var(--border))] bg-[hsl(var(--card))]'
+                    ? 'border-[#28695e] bg-[#f2f8f5] dark:border-[#387c71] dark:bg-[#152724]'
+                    : 'border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:border-[hsl(var(--primary))]/50'
                 )}
               >
-                <div>
-                  <div className="flex items-center gap-3">
-                    {isActive && <Pin size={18} className="text-[#28695e] dark:text-[#64d1be] animate-bounce" />}
-                    <h2 className="font-display text-2xl font-bold">{s.code} — {s.label}</h2>
-                    {/* Consistent status display */}
-                    {isActive ? (
-                      <span className="px-3 py-1 text-[10px] font-black rounded-full bg-[#bcd8cb] text-[#28695e] uppercase">PINNED ACTIVE CYCLE</span>
-                    ) : s.locked ? (
-                      <span className="flex items-center gap-1 rounded-full bg-gray-200 dark:bg-gray-800 px-2.5 py-0.5 text-[10px] font-bold text-gray-700 dark:text-gray-300"><Lock size={11} /> LOCKED</span>
-                    ) : null}
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-black">{s.label}</h3>
+                      <span className="font-mono text-xs font-bold text-[hsl(var(--muted-foreground))]">({s.code})</span>
+                      {isActive && (
+                        <span className="rounded-full bg-[#28695e] text-white px-3 py-0.5 text-[10px] font-extrabold flex items-center gap-1 shadow-sm">
+                          <Pin size={10} /> Active Cycle
+                        </span>
+                      )}
+                      <StatusPill status={s.status} />
+                    </div>
+                    <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{s.term} {s.year} · Micro-stats: 59 Offerings · 70 Faculty</p>
                   </div>
-                  <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{s.term} {s.year} · Micro-stats: 59 Offerings · 70 Faculty</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => toggleLock(s)} title="Toggle Lock Cycle" className="p-2 rounded-xl border border-[hsl(var(--border))] hover:bg-[hsl(var(--muted))]">
-                    {s.locked ? <Lock size={15} className="text-red-600" /> : <Unlock size={15} className="text-gray-400" />}
-                  </button>
-                  <StatusPill status={isActive ? 'Active Cycle' : s.status} />
-                  {!isActive && (
-                    <Button variant="outline" testId={`button-activate-${s.id}`} onClick={() => switchCycle(s.id)}>
-                      Activate cycle
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      testId={`button-lock-toggle-${s.id}`}
+                      onClick={() => toggleLock(s)}
+                      className="text-xs"
+                    >
+                      {s.locked ? <Lock size={14} className="text-red-500" /> : <Unlock size={14} className="text-emerald-500" />}
+                      {s.locked ? 'Locked' : 'Unlocked'}
                     </Button>
-                  )}
+                    {!isActive && (
+                      <Button testId={`button-activate-${s.id}`} onClick={() => switchCycle(s.code)}>
+                        Activate cycle
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1161,13 +1211,29 @@ function PlanningPage() {
 
       {/* Carry Over Cycle Modal */}
       {cloneModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setCloneModal(false); }}>
           <div className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <h3 className="font-black text-base">Carry Over / Clone Academic Cycle</h3>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Duplicate section offerings and faculty assignments from {activeCycleCode} into a new cycle.</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+              Duplicate course section offerings from previous cycle into a new academic session.
+            </p>
             <div className="mt-4 space-y-3">
-              <input value={cloneCode} onChange={(e) => setCloneCode(e.target.value)} placeholder="e.g. SP26" className="w-full rounded-xl border border-[hsl(var(--border))] p-3 text-xs outline-none focus:border-[hsl(var(--primary))]" />
-              <input value={cloneLabel} onChange={(e) => setCloneLabel(e.target.value)} placeholder="e.g. Spring 2026 Cycle" className="w-full rounded-xl border border-[hsl(var(--border))] p-3 text-xs outline-none focus:border-[hsl(var(--primary))]" />
+              <div>
+                <label className="text-[11px] font-bold text-[hsl(var(--muted-foreground))] mb-1 block">Source Academic Cycle</label>
+                <select value={cloneSourceCode} onChange={(e) => setCloneSourceCode(e.target.value)} className="w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 text-xs outline-none focus:border-[hsl(var(--primary))] font-bold">
+                  {(sessions.data ?? []).map((s: any) => (
+                    <option key={s.id} value={s.code}>{s.code} - {s.label} ({s.status})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-[hsl(var(--muted-foreground))] mb-1 block">New Cycle Code</label>
+                <input value={cloneCode} onChange={(e) => setCloneCode(e.target.value)} placeholder="e.g. SP26" className="w-full rounded-xl border border-[hsl(var(--border))] p-3 text-xs outline-none focus:border-[hsl(var(--primary))]" />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-[hsl(var(--muted-foreground))] mb-1 block">New Cycle Label</label>
+                <input value={cloneLabel} onChange={(e) => setCloneLabel(e.target.value)} placeholder="e.g. Spring 2026 Cycle" className="w-full rounded-xl border border-[hsl(var(--border))] p-3 text-xs outline-none focus:border-[hsl(var(--primary))]" />
+              </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" testId="button-cancel-clone" onClick={() => setCloneModal(false)}>Cancel</Button>
@@ -1316,7 +1382,7 @@ function ConflictsPage() {
       </QueryState>
 
       {overrideConflict && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setOverrideConflict(null); }}>
           <div className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-black text-base">HOD Force-Approve Override</h3>
@@ -1870,7 +1936,7 @@ function CoursesPage() {
 
       {/* ── Add Section Modal ─────────────────────────────────────────────────── */}
       {addSectionCourse && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setAddSectionCourse(null); }}>
           <form onSubmit={handleCreateSection} className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 border-b pb-3">
               <div>
@@ -1915,7 +1981,7 @@ function CoursesPage() {
 
       {/* ── Move Section Modal ────────────────────────────────────────────────── */}
       {moveSectionOffering && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setMoveSectionOffering(null); }}>
           <form onSubmit={handleMoveSection} className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 border-b pb-3">
               <div>
@@ -1966,7 +2032,7 @@ function CoursesPage() {
 
       {/* ── Edit Section Modal ────────────────────────────────────────────────── */}
       {editSectionOffering && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setEditSectionOffering(null); }}>
           <form onSubmit={handleEditSection} className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 border-b pb-3">
               <div>
@@ -2017,7 +2083,7 @@ function CoursesPage() {
 
       {/* ── Merge into Joint Lecture Modal ────────────────────────────────────── */}
       {mergeJointCourse && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setMergeJointCourse(null); }}>
           <div className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 border-b pb-3">
               <div>
@@ -2249,7 +2315,7 @@ function FacultyPage() {
                     <a href={`mailto:${email}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 hover:text-[hsl(var(--primary))]">
                       <Mail size={13} /> {email}
                     </a>
-                    <a href={`https://wa.me/${phone.replace(/\+/g, '')}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 text-emerald-600 hover:underline">
+                    <a href={formatWhatsAppUrl(phone)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 text-emerald-600 hover:underline font-bold">
                       <Phone size={13} /> WhatsApp
                     </a>
                   </div>
@@ -2301,7 +2367,7 @@ function FacultyPage() {
 
       {/* Add Faculty Modal */}
       {addFacultyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setAddFacultyModal(false); }}>
           <form onSubmit={handleCreateFaculty} className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 border-b pb-3">
               <h3 className="font-black text-base">Add New Faculty Member</h3>
@@ -2328,7 +2394,7 @@ function FacultyPage() {
 
       {/* Edit Faculty Modal */}
       {editFaculty && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setEditFaculty(null); }}>
           <form onSubmit={handleSaveEditFaculty} className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 border-b pb-3">
               <h3 className="font-black text-base">Edit Faculty Profile</h3>
@@ -2355,7 +2421,7 @@ function FacultyPage() {
 
       {/* Interactive Drill-Down Modal & Schedule Printing */}
       {drillDownFaculty && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setDrillDownFaculty(null); }}>
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 border-b pb-4">
               <div className="flex items-center gap-3">
@@ -2469,17 +2535,8 @@ function WorkloadPage() {
           </div>
           <p className="mt-2 text-[10px] text-[hsl(var(--muted-foreground))]">Well within HEC compliance threshold (&lt;25%).</p>
         </div>
-
-        <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 shadow-sm card-tilt-hover flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-black uppercase text-[hsl(var(--muted-foreground))] tracking-wider">Equalizer Guard</span>
-            <p className="text-xs font-bold mt-1">Smart Auto-Balancer Active</p>
-          </div>
-          <span className="px-3 py-1 text-[10px] font-black rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-            Optimal Balance
-          </span>
-        </div>
       </div>
+
 
       <QueryState loading={workload.isLoading} error={workload.error} onRetry={() => workload.refetch()} empty={!workload.data?.length} emptyText="Workload data loading...">
         <DataTable headers={['Faculty Member', 'Designation', 'Type', 'Courses', 'Theory', 'Lab', 'Total Load', 'Status']} minWidth="850px">
@@ -2580,28 +2637,6 @@ function AllocationPage() {
     } catch { toast('Bulk assign error', 'error'); }
   };
 
-  // Smart Auto-Balancer Algorithm
-  const handleAutoBalanceWorkload = async () => {
-    const unallocated = (offerings.data ?? []).filter((o) => !o.faculty);
-    if (!unallocated.length) {
-      toast('All course section offerings are already allocated!', 'info');
-      return;
-    }
-
-    const facList = faculty.data ?? [];
-    let count = 0;
-    for (const offering of unallocated) {
-      const match = facList.find(
-        (f) => Number(f.currentLoad || 0) < Number(f.maximumLoad || 12)
-      );
-      if (match) {
-        await executeAssign(offering, match.name);
-        count++;
-      }
-    }
-    toast(`⚡ Auto-balanced: ${count} sections allocated according to domain expertise & capacity limits!`, 'success');
-  };
-
   // Batch Broadcast Actions
   const handleBatchBroadcastWhatsApp = () => {
     if (!selectedIds.length) { toast('Select sections to broadcast', 'error'); return; }
@@ -2638,12 +2673,9 @@ function AllocationPage() {
       <PageHeader
         eyebrow="Workspace / live allocation"
         title="Course Offering & Section Assignments"
-        description="Assign faculty instructors to section offerings with AI domain matching, auto-workload balancing, and visual timetable collision radar."
+        description="Assign faculty instructors to section offerings with interactive domain matching, real-time workload limits, and visual schedule radar."
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            <Button testId="button-auto-balance" onClick={handleAutoBalanceWorkload}>
-              ⚡ Auto-Balance Workload
-            </Button>
             <Button variant="outline" testId="button-generate-notice" onClick={() => setShowNoticeModal(true)}>
               📄 Official Department Notice
             </Button>
@@ -2794,7 +2826,7 @@ function AllocationPage() {
 
       {/* Single Reassignment Confirmation Modal */}
       {confirmReassign && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setConfirmReassign(null); }}>
           <div className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <h3 className="font-black text-base">Confirm Faculty Reassignment</h3>
             <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))] leading-relaxed">
@@ -2820,7 +2852,7 @@ function AllocationPage() {
 
       {/* Bulk Assignment Confirmation Modal */}
       {confirmBulkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setConfirmBulkModal(false); }}>
           <div className="w-full max-w-md rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl">
             <h3 className="font-black text-base">Confirm Bulk Faculty Assignment</h3>
             <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))] leading-relaxed">
@@ -2836,7 +2868,7 @@ function AllocationPage() {
 
       {/* ── Official Department Notice Generator Modal (Printable) ─────────── */}
       {showNoticeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setShowNoticeModal(false); }}>
           <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-3xl border border-[hsl(var(--border))] bg-white dark:bg-gray-900 p-8 shadow-2xl text-gray-900 dark:text-gray-100">
             <div className="flex items-center justify-between border-b pb-4 mb-6">
               <div className="flex items-center gap-3">

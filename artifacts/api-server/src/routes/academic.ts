@@ -246,9 +246,9 @@ router.patch("/sessions/:id/lock", async (req, res): Promise<void> => {
   res.json({ success: true, locked: Boolean(locked), session: sess });
 });
 
-router.post("/sessions/clone", async (req, res): Promise<void> => {
+router.post("/sessions/clone", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {
   await ensureSeeded();
-  const { sourceCode, newCode, newLabel, year } = req.body;
+  const { sourceCode, newCode, newLabel, year, term } = req.body;
   if (!newCode || !newLabel) {
     res.status(400).json({ error: "New cycle code and label are required" });
     return;
@@ -258,21 +258,73 @@ router.post("/sessions/clone", async (req, res): Promise<void> => {
     id: memoryStore.sessions.length + 1,
     code: newCode.trim().toUpperCase(),
     label: newLabel.trim(),
-    term: "Fall",
+    term: term || "Spring",
     year: Number(year || 2026),
     status: "Draft",
     locked: false,
     createdAt: new Date(),
   };
 
+  try {
+    await db.insert(academicSessionsTable).values({
+      code: newSession.code,
+      label: newSession.label,
+      term: newSession.term,
+      year: newSession.year,
+      status: "Draft",
+    });
+  } catch (_) {}
   memoryStore.sessions.push(newSession);
 
-  // Clone offerings from source cycle or existing memoryStore offerings
-  const clonedCount = memoryStore.offerings.length;
-  const log = { user: (req as any).user?.name || "HOD Admin", action: "Cycle Carried Over", detail: `Cloned ${clonedCount} section offerings from ${sourceCode || "previous cycle"} into ${newCode}` };
-  memoryStore.activity.push({ id: memoryStore.activity.length + 1, ...log, timestamp: new Date() });
+  // Clone course section offerings from source cycle
+  // Assumption: Carry-over duplicates course section offering structure (code, title, programme, semester, section, credit, theory, lab, capacity)
+  // while resetting faculty allocations to unassigned so the new academic cycle starts fresh for HOD allocation.
+  let sourceOfferings: any[] = memoryStore.offerings;
+  try {
+    const dbOffs = await db.select().from(offeringsTable);
+    if (dbOffs.length) sourceOfferings = dbOffs as any;
+  } catch (_) {}
 
-  res.status(201).json({ success: true, session: newSession, clonedOfferings: clonedCount });
+  const clonedList: any[] = [];
+  sourceOfferings.forEach((o) => {
+    const cloned = {
+      courseId: o.courseId || o.course_id || null,
+      courseCode: o.courseCode || o.course_code,
+      courseTitle: o.courseTitle || o.course_title,
+      programme: o.programme,
+      semester: o.semester,
+      section: o.section,
+      credit: o.credit,
+      theory: String(o.theory || 0),
+      lab: String(o.lab || 0),
+      facultyId: null,
+      faculty: null,
+      labFacultyId: null,
+      labFaculty: null,
+      previousFaculty: o.faculty || o.previousFaculty || null,
+      capacity: Number(o.capacity || 40),
+      enrolled: 0,
+      projectedWorkload: String(Number(o.theory || 0) + Number(o.lab || 0)),
+      status: "Unallocated",
+    };
+    clonedList.push(cloned);
+  });
+
+  for (const cOff of clonedList) {
+    let newId = memoryStore.offerings.length + 1000;
+    try {
+      const [row] = await db.insert(offeringsTable).values(cOff).returning();
+      if (row) newId = row.id;
+    } catch (_) {}
+    memoryStore.offerings.push({ id: newId, ...cOff });
+  }
+
+  const log = { user: (req as any).user?.name || "HOD Admin", action: "Cycle Carried Over", detail: `Cloned ${clonedList.length} section offerings from ${sourceCode || "previous cycle"} into ${newCode}` };
+  try { await db.insert(activityTable).values(log); } catch (_) {
+    memoryStore.activity.push({ id: memoryStore.activity.length + 1, ...log, timestamp: new Date() });
+  }
+
+  res.status(201).json({ success: true, session: newSession, clonedOfferings: clonedList.length });
 });
 
 router.post("/allocations/override", async (req, res): Promise<void> => {
@@ -442,20 +494,53 @@ router.delete("/courses/:id", authenticate, requireRole("ADMIN"), async (req: Au
 router.get("/faculty", async (req, res): Promise<void> => {
   await ensureSeeded();
   const { search, type } = req.query;
+
+  let facultyList: any[] = memoryStore.faculty;
+  let offeringsList: any[] = memoryStore.offerings;
+
   try {
-    let rows = await db.select().from(facultyTable);
-    if (rows.length) {
-      if (search && typeof search === "string") rows = rows.filter((r) => r.name.toLowerCase().includes(search.toLowerCase()));
-      if (type && typeof type === "string") rows = rows.filter((r) => r.type === type);
-      res.json(rows.map((r) => ({ ...r, currentLoad: n(r.currentLoad), maximumLoad: n(r.maximumLoad) })));
-      return;
-    }
+    const [dbFac, dbOff] = await Promise.all([db.select().from(facultyTable), db.select().from(offeringsTable)]);
+    if (dbFac.length) facultyList = dbFac as any;
+    if (dbOff.length) offeringsList = dbOff as any;
   } catch (_) {}
 
-  let list = memoryStore.faculty;
-  if (search && typeof search === "string") list = list.filter((r) => r.name.toLowerCase().includes(search.toLowerCase()));
-  if (type && typeof type === "string") list = list.filter((r) => r.type === type);
-  res.json(list.map((r) => ({ ...r, currentLoad: n(r.currentLoad), maximumLoad: n(r.maximumLoad) })));
+  if (search && typeof search === "string") {
+    facultyList = facultyList.filter((r) => r.name.toLowerCase().includes(search.toLowerCase()));
+  }
+  if (type && typeof type === "string") {
+    facultyList = facultyList.filter((r) => r.type === type);
+  }
+
+  const result = facultyList.map((f) => {
+    const assigned = offeringsList.filter((o) =>
+      (o.facultyId && Number(o.facultyId) === Number(f.id)) ||
+      (o.faculty && f.name && o.faculty.trim().toLowerCase() === f.name.trim().toLowerCase())
+    );
+    const dynamicLoad = assigned.reduce(
+      (sum, o) => sum + n(o.projectedWorkload || o.projected_workload || n(o.theory) + n(o.lab)),
+      0
+    );
+    const maxLoad = n(f.maximumLoad || f.maximum_load || 12);
+    let dynamicStatus = "Balanced";
+    if (dynamicLoad > maxLoad) {
+      dynamicStatus = "Overloaded";
+    } else if (dynamicLoad === 0) {
+      dynamicStatus = "Underloaded";
+    } else if (dynamicLoad >= maxLoad - 2) {
+      dynamicStatus = "Balanced";
+    } else {
+      dynamicStatus = "Light Load";
+    }
+
+    return {
+      ...f,
+      currentLoad: dynamicLoad,
+      maximumLoad: maxLoad,
+      status: dynamicStatus,
+    };
+  });
+
+  res.json(result);
 });
 
 router.get("/workload", async (_req, res): Promise<void> => {
@@ -468,16 +553,36 @@ router.get("/workload", async (_req, res): Promise<void> => {
   } catch (_) {}
 
   const rows = faculty.map((f) => {
-    const assigned = offerings.filter((o) => o.faculty === f.name);
+    const assigned = offerings.filter((o) =>
+      (o.facultyId && Number(o.facultyId) === Number(f.id)) ||
+      (o.faculty && f.name && o.faculty.trim().toLowerCase() === f.name.trim().toLowerCase())
+    );
+    const dynamicLoad = assigned.reduce(
+      (sum, o) => sum + n(o.projectedWorkload || o.projected_workload || n(o.theory) + n(o.lab)),
+      0
+    );
+    const maxLoad = n(f.maximumLoad || f.maximum_load || 12);
+    let dynamicStatus = "Balanced";
+    if (dynamicLoad > maxLoad) {
+      dynamicStatus = "Overloaded";
+    } else if (dynamicLoad === 0) {
+      dynamicStatus = "Underloaded";
+    } else if (dynamicLoad >= maxLoad - 2) {
+      dynamicStatus = "Balanced";
+    } else {
+      dynamicStatus = "Light Load";
+    }
+
     return {
       ...f,
-      currentLoad: n(f.currentLoad),
-      maximumLoad: n(f.maximumLoad),
+      currentLoad: dynamicLoad,
+      maximumLoad: maxLoad,
+      status: dynamicStatus,
       courses: assigned.length,
       sections: assigned.length,
       theory: assigned.reduce((s, o) => s + n(o.theory), 0),
       lab: assigned.reduce((s, o) => s + n(o.lab), 0),
-      total: assigned.reduce((s, o) => s + n(o.projectedWorkload || o.projected_workload || o.theory + o.lab), 0),
+      total: dynamicLoad,
     };
   });
 
