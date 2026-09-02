@@ -12,6 +12,7 @@ import {
 import { seedDatabase } from "../lib/seed";
 import { authenticate, requireRole, type AuthRequest } from "../middlewares/auth";
 import { memoryStore } from "../lib/memory-store";
+import { OFFICIAL_FALL_2026_COURSES } from "../lib/courses-fall2026";
 
 const router: IRouter = Router();
 let isDbSeeded = false;
@@ -414,18 +415,107 @@ router.post("/sessions/:id/approve", authenticate, requireRole("ADMIN"), async (
 router.get("/courses", async (req, res): Promise<void> => {
   await ensureSeeded();
   const { search, programme } = req.query;
+
+  function parseProgrammes(r: any): string[] {
+    if (r.programmes) {
+      try {
+        if (Array.isArray(r.programmes)) return r.programmes;
+        const parsed = JSON.parse(r.programmes);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {
+        if (typeof r.programmes === "string") return r.programmes.split(",").map((s: string) => s.trim());
+      }
+    }
+    return [r.programme || "BSCS"];
+  }
+
   try {
     const filters = [];
     if (search && typeof search === "string") filters.push(ilike(coursesTable.title, `%${search}%`));
     if (programme && typeof programme === "string") filters.push(eq(coursesTable.programme, programme));
     const rows = await db.select().from(coursesTable).where(filters.length ? and(...filters) : undefined);
-    if (rows.length) { res.json(rows.map((r) => ({ ...r, theory: n(r.theory), lab: n(r.lab) }))); return; }
+    if (rows.length) {
+      res.json(rows.map((r) => ({
+        ...r,
+        theory: n(r.theory),
+        lab: n(r.lab),
+        programmesList: parseProgrammes(r),
+      })));
+      return;
+    }
   } catch (_) {}
 
   let list = memoryStore.courses;
   if (search && typeof search === "string") list = list.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()) || c.code.toLowerCase().includes(search.toLowerCase()));
   if (programme && typeof programme === "string") list = list.filter((c) => c.programme === programme);
-  res.json(list.map((r) => ({ ...r, theory: n(r.theory), lab: n(r.lab) })));
+  res.json(list.map((r) => ({
+    ...r,
+    theory: n(r.theory),
+    lab: n(r.lab),
+    programmesList: parseProgrammes(r),
+  })));
+});
+
+router.post("/courses/sync", authenticate, requireRole("ADMIN"), async (_req, res): Promise<void> => {
+  await ensureSeeded();
+  const officialCodes = new Set(OFFICIAL_FALL_2026_COURSES.map((c) => c.code.toUpperCase()));
+  let addedCount = 0;
+  let removedCount = 0;
+
+  const commonBSCSandBSSE = OFFICIAL_FALL_2026_COURSES.filter(
+    (c) => c.programs.includes("BSCS") && c.programs.includes("BSSE")
+  );
+  const commonBSCSandBSSECount = new Set(commonBSCSandBSSE.map((c) => c.code.toUpperCase())).size;
+
+  try {
+    const existingCourses = await db.select().from(coursesTable);
+    const existingMap = new Map(existingCourses.map((c) => [c.code.toUpperCase(), c]));
+
+    // Remove obsolete courses
+    for (const c of existingCourses) {
+      if (!officialCodes.has(c.code.toUpperCase())) {
+        await db.delete(coursesTable).where(eq(coursesTable.id, c.id));
+        removedCount++;
+      }
+    }
+
+    // Insert or update official courses
+    for (const c of OFFICIAL_FALL_2026_COURSES) {
+      const progStr = JSON.stringify(c.programs);
+      const primaryProg = c.programs.length > 1 ? "Shared" : c.programs[0];
+      const courseValues = {
+        code: c.code.toUpperCase(),
+        title: c.title,
+        programme: primaryProg,
+        semester: "1",
+        credit: c.credit,
+        theory: String(c.theory),
+        lab: String(c.lab),
+        category: c.programs.length > 1 ? "Shared" : "Core",
+        status: "Active",
+        programmes: progStr,
+        prerequisites: c.prerequisite || "",
+      };
+
+      const existing = existingMap.get(c.code.toUpperCase());
+      if (existing) {
+        await db.update(coursesTable).set(courseValues).where(eq(coursesTable.id, existing.id));
+      } else {
+        await db.insert(coursesTable).values(courseValues).onConflictDoNothing();
+        addedCount++;
+      }
+    }
+  } catch (err) {
+    console.warn("DB course sync warning:", (err as Error).message);
+  }
+
+  res.json({
+    success: true,
+    addedCount,
+    removedCount,
+    commonBSCSandBSSECount,
+    totalOfficialCourses: OFFICIAL_FALL_2026_COURSES.length,
+  });
 });
 
 router.post("/courses", authenticate, requireRole("ADMIN"), async (req: AuthRequest, res): Promise<void> => {

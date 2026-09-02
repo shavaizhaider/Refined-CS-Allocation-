@@ -47,6 +47,7 @@ import {
   Trash2,
   Unlock,
   Users,
+  WifiOff,
   X,
   Zap,
 } from 'lucide-react';
@@ -289,6 +290,32 @@ function ToastContainer() {
   );
 }
 
+function OfflineBanner() {
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  if (!isOffline) return null;
+
+  return (
+    <div className="fixed top-0 left-0 right-0 z-[1000] bg-amber-600 text-white text-center py-2 px-4 text-xs font-bold shadow-md flex items-center justify-center gap-2 animate-in slide-in-from-top duration-200">
+      <WifiOff size={15} />
+      <span>You're offline — some features need an internet connection</span>
+    </div>
+  );
+}
+
 // ─── Shared UI components ─────────────────────────────────────────────────────
 
 function StatusPill({ status }: { status?: string }) {
@@ -512,6 +539,7 @@ function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="noise min-h-[100dvh] bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors">
+      <OfflineBanner />
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-40 flex flex-col border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar))] py-5 text-[hsl(var(--sidebar-foreground))] transition-all duration-300 lg:translate-x-0',
@@ -1503,9 +1531,10 @@ function DualProgramBadge() {
 
 function CoursesPage() {
   const [search, setSearch] = useState('');
-  const [categoryTab, setCategoryTab] = useState<'ALL' | 'SHARED' | 'BSCS' | 'BSSE' | 'MSCS'>('ALL');
+  const [categoryTab, setCategoryTab] = useState<'ALL' | 'COMMON' | 'BSCS' | 'BSSE' | 'PHD'>('ALL');
   const [viewMode, setViewMode] = useState<'CATALOGUE' | 'GRAPH'>('CATALOGUE');
   const [adding, setAdding] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [addSectionCourse, setAddSectionCourse] = useState<SeededCourse | null>(null);
   const [sectionForm, setSectionForm] = useState({ section: 'Sec A', capacity: 40 });
   const [moveSectionOffering, setMoveSectionOffering] = useState<any | null>(null);
@@ -1530,6 +1559,31 @@ function CoursesPage() {
     setAdding(false);
   };
 
+  const handleSyncFall2026 = async () => {
+    setIsSyncing(true);
+    try {
+      const token = localStorage.getItem('cs_token');
+      const res = await fetch('/api/courses/sync', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast(
+          `Synced Fall 2026 Scheme of Studies! Added: ${data.addedCount}, Removed: ${data.removedCount}, Common BSCS/BSSE: ${data.commonBSCSandBSSECount}`,
+          'success'
+        );
+        qc.invalidateQueries({ queryKey: getListCoursesQueryKey() });
+      } else {
+        toast('Sync failed', 'error');
+      }
+    } catch {
+      toast('Network error during sync', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Merge API courses with seeded catalogue (dedupe by code)
   const apiCodes = new Set((courses.data ?? []).map((c: any) => c.code));
   const seededAsApiShape = SEEDED_COURSES.map((s, i) => ({
@@ -1537,6 +1591,7 @@ function CoursesPage() {
     code: s.code,
     title: s.title,
     programme: s.programme,
+    programmesList: [s.programme],
     semester: s.semester,
     credit: s.credit,
     theory: s.theory,
@@ -1546,18 +1601,44 @@ function CoursesPage() {
     status: 'Active',
     _seeded: true,
   }));
-  const apiCourses = (courses.data ?? []).map((c: any) => ({ ...c, category: c.programme?.toUpperCase() === 'BSCS' ? 'BSCS' : c.programme?.toUpperCase() === 'BSSE' ? 'BSSE' : c.programme?.toUpperCase() === 'MSCS' ? 'MSCS' : c.programme?.toLowerCase().includes('shared') ? 'SHARED' : 'BSCS', _seeded: false }));
+
+  const apiCourses = (courses.data ?? []).map((c: any) => {
+    const progsList = Array.isArray(c.programmesList)
+      ? c.programmesList
+      : c.programmes
+      ? String(c.programmes).split(',').map((p) => p.trim())
+      : [c.programme || 'BSCS'];
+
+    return {
+      ...c,
+      programmesList: progsList,
+      _seeded: false,
+    };
+  });
+
   const allCourses = [
     ...apiCourses,
     ...seededAsApiShape.filter((s) => !apiCodes.has(s.code)),
   ];
 
   // Filter by category tab
-  const tabFiltered = allCourses.filter((c) => {
-    if (categoryTab !== 'ALL' && c.category !== categoryTab) return false;
+  const tabFiltered = allCourses.filter((c: any) => {
+    const progs: string[] = Array.isArray(c.programmesList) ? c.programmesList : [c.programme];
+    const isCommon = progs.includes('BSCS') && progs.includes('BSSE') || c.programme === 'Shared' || c.category === 'SHARED';
+
+    if (categoryTab === 'COMMON' && !isCommon) return false;
+    if (categoryTab === 'BSCS' && !progs.includes('BSCS') && c.programme !== 'BSCS') return false;
+    if (categoryTab === 'BSSE' && !progs.includes('BSSE') && c.programme !== 'BSSE') return false;
+    if (categoryTab === 'PHD' && !progs.includes('PhD-CS') && c.programme !== 'PhD-CS') return false;
+
     if (search) {
       const q = search.toLowerCase();
-      return c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || (c.domain || '').toLowerCase().includes(q);
+      return (
+        c.code.toLowerCase().includes(q) ||
+        c.title.toLowerCase().includes(q) ||
+        (c.prerequisites || '').toLowerCase().includes(q) ||
+        (c.domain || '').toLowerCase().includes(q)
+      );
     }
     return true;
   });
@@ -1628,7 +1709,6 @@ function CoursesPage() {
         setMoveSectionOffering(null);
         qc.invalidateQueries({ queryKey: getListOfferingsQueryKey() });
       } else {
-        // Optimistic fallback: update local store note
         toast(`Move recorded: ${moveSectionOffering.courseCode} → ${moveTargetProg} ${moveTargetSection}`, 'info');
         setMoveSectionOffering(null);
       }
@@ -1669,7 +1749,6 @@ function CoursesPage() {
   };
 
   const handleDeleteCourse = async (id: number, code: string) => {
-    if (id < 0) { toast('Seeded courses cannot be deleted from the catalogue.', 'info'); return; }
     if (!confirm(`Delete course ${code}? This action cannot be undone.`)) return;
     try {
       const token = localStorage.getItem('cs_token');
@@ -1690,24 +1769,30 @@ function CoursesPage() {
     offeringsByCourse[o.courseCode].push(o);
   });
 
-  const CATEGORY_TABS: { key: 'ALL' | 'SHARED' | 'BSCS' | 'BSSE' | 'MSCS'; label: string; color: string }[] = [
-    { key: 'ALL',    label: 'All Courses',                color: '' },
-    { key: 'SHARED', label: '⇌ Shared / Cross-Listed',   color: 'amber' },
-    { key: 'BSCS',   label: 'BSCS Specific',             color: 'emerald' },
-    { key: 'BSSE',   label: 'BSSE Specific',             color: 'blue' },
-    { key: 'MSCS',   label: 'MSCS Graduate',             color: 'purple' },
+  const CATEGORY_TABS: { key: 'ALL' | 'COMMON' | 'BSCS' | 'BSSE' | 'PHD'; label: string; color: string }[] = [
+    { key: 'ALL',    label: 'All Courses',                 color: '' },
+    { key: 'COMMON', label: '⇌ Common (BSCS & BSSE)',     color: 'amber' },
+    { key: 'BSCS',   label: 'BSCS Courses',               color: 'emerald' },
+    { key: 'BSSE',   label: 'BSSE Courses',               color: 'blue' },
+    { key: 'PHD',    label: 'PhD CS Courses',             color: 'purple' },
   ];
 
   return (
     <>
       <PageHeader
         eyebrow="Directory / curriculum"
-        title="CS Department Course Catalogue"
-        description="Categorized course repository: Shared/Cross-Listed, BSCS, BSSE, and MSCS programmes with dynamic section management."
+        title="CS Department Course Catalogue (Fall 2026)"
+        description="Official COMSATS Scheme of Studies: BSCS, BSSE, and PhD CS courses with Common BSCS+BSSE courses detection."
         actions={
-          <Button testId="button-add-course" onClick={() => { resetForm(); setAdding(true); }}>
-            <Plus size={15} />Add New Course
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" testId="button-sync-courses" onClick={handleSyncFall2026} disabled={isSyncing}>
+              <RefreshCw size={14} className={cn(isSyncing && "animate-spin")} />
+              {isSyncing ? 'Syncing...' : 'Sync Fall 2026 Scheme'}
+            </Button>
+            <Button testId="button-add-course" onClick={() => { resetForm(); setAdding(true); }}>
+              <Plus size={15} />Add New Course
+            </Button>
+          </div>
         }
       />
 

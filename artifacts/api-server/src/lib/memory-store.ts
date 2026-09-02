@@ -208,20 +208,23 @@ class MemoryStore {
           ...f,
         }));
 
-        this.courses = (raw.courses || []).map((c: any, idx: number) => {
-          const isAdvanced = Number(c.semester || "1") >= 3;
-          return {
-            id: idx + 1,
-            theory: String(c.theory || 0),
-            lab: String(c.lab || 0),
-            category: c.category || "Core",
-            domain: domains[idx % domains.length],
-            prerequisites: isAdvanced ? ["CSC101"] : [],
-            coRequisites: c.lab > 0 ? [`${c.code}-LAB`] : [],
-            status: "Active",
-            ...c,
-          };
-        });
+        const { OFFICIAL_FALL_2026_COURSES } = await import("./courses-fall2026");
+        this.courses = OFFICIAL_FALL_2026_COURSES.map((c, idx) => ({
+          id: idx + 1,
+          code: c.code,
+          title: c.title,
+          programme: c.programs.length > 1 ? "Shared" : c.programs[0],
+          programmes: JSON.stringify(c.programs),
+          semester: "1",
+          credit: c.credit,
+          theory: String(c.theory),
+          lab: String(c.lab),
+          category: c.programs.length > 1 ? "Shared" : "Core",
+          domain: domains[idx % domains.length],
+          prerequisites: c.prerequisite ? [c.prerequisite] : [],
+          coRequisites: [],
+          status: "Active",
+        }));
 
         this.offerings = (raw.offerings || []).map((o: any, idx: number) => ({
           id: idx + 1,

@@ -54,6 +54,8 @@ export const coursesTable = pgTable("courses", {
   lab: numeric("lab").notNull().default("0"),
   category: text("category").notNull().default("Core"),
   status: text("status").notNull().default("Active"),
+  programmes: text("programmes"),
+  prerequisites: text("prerequisites"),
 });
 
 export const offeringsTable = pgTable("course_offerings", {

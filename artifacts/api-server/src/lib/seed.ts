@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import bcrypt from "bcryptjs";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -11,6 +11,7 @@ import {
   offeringsTable,
   activityTable,
 } from "@workspace/db";
+import { OFFICIAL_FALL_2026_COURSES } from "./courses-fall2026";
 
 async function ensureSchema() {
   const ddl = `
@@ -72,6 +73,9 @@ async function ensureSchema() {
       category TEXT NOT NULL DEFAULT 'Core',
       status TEXT NOT NULL DEFAULT 'Active'
     );
+
+    ALTER TABLE courses ADD COLUMN IF NOT EXISTS programmes TEXT;
+    ALTER TABLE courses ADD COLUMN IF NOT EXISTS prerequisites TEXT;
 
     CREATE TABLE IF NOT EXISTS course_offerings (
       id SERIAL PRIMARY KEY,
@@ -186,10 +190,41 @@ export async function seedDatabase() {
       }
     }
 
-    const existingCourses = await db.select().from(coursesTable).limit(1);
-    if (!existingCourses.length && realData.courses.length) {
-      for (const c of realData.courses) {
-        await db.insert(coursesTable).values(c).onConflictDoNothing();
+    const existingCourses = await db.select().from(coursesTable);
+    const officialCodes = new Set(OFFICIAL_FALL_2026_COURSES.map((c) => c.code.toUpperCase()));
+
+    // 1. Remove courses in catalogue that are NOT in Fall 2026 official lists
+    const obsoleteIds = existingCourses.filter((c) => !officialCodes.has(c.code.toUpperCase())).map((c) => c.id);
+    if (obsoleteIds.length) {
+      for (const id of obsoleteIds) {
+        await db.delete(coursesTable).where(eq(coursesTable.id, id));
+      }
+    }
+
+    // 2. Insert or update official Fall 2026 courses
+    const existingMap = new Map(existingCourses.map((c) => [c.code.toUpperCase(), c]));
+    for (const c of OFFICIAL_FALL_2026_COURSES) {
+      const progStr = JSON.stringify(c.programs);
+      const primaryProg = c.programs.length > 1 ? "Shared" : c.programs[0];
+      const courseValues = {
+        code: c.code.toUpperCase(),
+        title: c.title,
+        programme: primaryProg,
+        semester: "1",
+        credit: c.credit,
+        theory: String(c.theory),
+        lab: String(c.lab),
+        category: c.programs.length > 1 ? "Shared" : "Core",
+        status: "Active",
+        programmes: progStr,
+        prerequisites: c.prerequisite || "",
+      };
+
+      const existing = existingMap.get(c.code.toUpperCase());
+      if (existing) {
+        await db.update(coursesTable).set(courseValues).where(eq(coursesTable.id, existing.id));
+      } else {
+        await db.insert(coursesTable).values(courseValues).onConflictDoNothing();
       }
     }
 
